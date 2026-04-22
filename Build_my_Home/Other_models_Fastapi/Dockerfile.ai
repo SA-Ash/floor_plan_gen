@@ -1,0 +1,24 @@
+# ── AI Engine Dockerfile (FastAPI) ──────────────────────────────────────────
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install minimal system dependencies
+# We use a single RUN command to keep the image slim and reduce network failure points
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source code
+COPY . .
+
+# Expose port
+EXPOSE 8001
+
+# Start server
+# Using the python executable directly
+CMD ["python", "fastapi_server.py", "--serve"]
