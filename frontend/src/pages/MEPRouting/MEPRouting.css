@@ -1,0 +1,40 @@
+.mep-routing { padding: var(--space-6); }
+.mep-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-6); }
+.mep-title { font-size: var(--text-2xl); font-weight: var(--font-bold); }
+.mep-subtitle { font-size: var(--text-sm); color: var(--text-muted); margin-top: var(--space-1); }
+.mep-toggles { display: flex; gap: var(--space-2); }
+.mep-toggle-btn { display: inline-flex; align-items: center; gap: 6px; padding: 0.4rem 1rem; font-size: var(--text-sm); font-weight: var(--font-medium); border-radius: var(--radius-full); border: 1px solid var(--border-color); color: var(--text-secondary); transition: all var(--transition-fast); }
+.mep-toggle-btn.active { border-color: var(--border-hover); background: rgba(59,130,246,0.08); color: var(--text-primary); }
+.mep-toggle-btn:hover { border-color: var(--border-hover); }
+.mep-toggle-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+.mep-layout { display: grid; grid-template-columns: 1fr 300px; gap: var(--space-6); }
+@media (max-width: 1024px) { .mep-layout { grid-template-columns: 1fr; } }
+
+.mep-canvas { border-radius: var(--radius-xl); overflow: hidden; }
+.mep-canvas-header { display: flex; justify-content: space-between; align-items: center; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-color); }
+.mep-canvas-title { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); font-weight: var(--font-medium); color: var(--text-secondary); }
+.mep-canvas-legend { display: flex; gap: var(--space-4); }
+.mep-legend-item { display: flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--text-muted); }
+.mep-legend-line { width: 20px; height: 0; border-top: 2px dashed; }
+
+.mep-svg { width: 100%; height: auto; display: block; padding: var(--space-4); cursor: pointer; background: rgba(0,10,30,0.4); }
+.mep-route { cursor: pointer; transition: opacity 0.2s; }
+.mep-route:hover polyline { stroke-width: 3; }
+
+.mep-info { display: flex; flex-direction: column; gap: var(--space-4); }
+.mep-info-section { border-radius: var(--radius-xl); padding: var(--space-4); }
+.mep-info-title { font-size: var(--text-xs); font-weight: var(--font-semibold); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: var(--space-3); display: flex; align-items: center; gap: 8px; }
+.mep-info-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.mep-algo-item { display: flex; gap: var(--space-3); margin-bottom: var(--space-3); }
+.mep-algo-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+.mep-algo-item strong { font-size: var(--text-sm); color: var(--text-primary); display: block; margin-bottom: 2px; }
+.mep-algo-item p { font-size: var(--text-xs); color: var(--text-muted); line-height: 1.4; }
+
+.mep-route-btn { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border: 1px solid transparent; transition: all var(--transition-fast); margin-bottom: var(--space-1); }
+.mep-route-btn:hover { background: var(--bg-hover); }
+.mep-route-btn.active { background: rgba(59,130,246,0.1); border-color: rgba(59,130,246,0.2); }
+.mep-route-btn strong { font-size: var(--text-sm); color: var(--text-primary); }
+.mep-route-btn span { font-size: var(--text-xs); color: var(--text-muted); }
+
+.mep-info-hint { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--text-muted); padding: var(--space-3); background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.1); border-radius: var(--radius-lg); }

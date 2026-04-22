@@ -1,0 +1,389 @@
+.worker-guidance {
+    padding: var(--space-6);
+}
+
+.wg-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-6);
+}
+
+.wg-title {
+    font-size: var(--text-2xl);
+    font-weight: var(--font-bold);
+}
+
+.wg-subtitle {
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    margin-top: var(--space-1);
+}
+
+/* Overall Progress Ring */
+.wg-overall {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.wg-overall-ring {
+    position: relative;
+    width: 60px;
+    height: 60px;
+}
+
+.wg-overall-ring svg {
+    width: 100%;
+    height: 100%;
+}
+
+.wg-overall-pct {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--text-sm);
+    font-weight: var(--font-bold);
+}
+
+.wg-overall-label {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+}
+
+/* Layout */
+.wg-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: var(--space-4);
+}
+
+/* Phases */
+.wg-phases {
+    border-radius: var(--radius-xl);
+    padding: var(--space-4);
+    height: fit-content;
+    position: sticky;
+    top: calc(var(--header-height) + var(--space-4));
+}
+
+.wg-phases-title {
+    font-size: var(--text-xs);
+    font-weight: var(--font-semibold);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: var(--space-3);
+}
+
+.wg-phase-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-3);
+    border-radius: var(--radius-lg);
+    transition: all var(--transition-fast);
+    text-align: left;
+}
+
+.wg-phase-btn:hover {
+    background: var(--bg-hover);
+}
+
+.wg-phase-btn.active {
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.wg-phase-indicator {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--text-xs);
+    font-weight: var(--font-bold);
+    flex-shrink: 0;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border: 2px solid var(--border-color);
+}
+
+.wg-phase-btn.completed .wg-phase-indicator {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: white;
+}
+
+.wg-phase-btn.in_progress .wg-phase-indicator {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: white;
+    animation: spin 2s linear infinite;
+}
+
+.wg-phase-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.wg-phase-name {
+    font-size: var(--text-sm);
+    font-weight: var(--font-medium);
+    display: block;
+}
+
+.wg-phase-progress-bar {
+    width: 100%;
+    height: 3px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-full);
+    margin-top: var(--space-1);
+    overflow: hidden;
+}
+
+.wg-phase-progress-fill {
+    height: 100%;
+    background: var(--gradient-primary);
+    border-radius: var(--radius-full);
+    transition: width var(--transition-slow);
+}
+
+.wg-phase-pct {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    font-weight: var(--font-medium);
+}
+
+/* Steps */
+.wg-steps-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: var(--radius-xl);
+    padding: var(--space-5);
+    margin-bottom: var(--space-4);
+}
+
+.wg-steps-title {
+    font-size: var(--text-xl);
+    font-weight: var(--font-semibold);
+}
+
+.wg-steps-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+}
+
+.wg-status-badge {
+    font-size: var(--text-xs);
+    font-weight: var(--font-semibold);
+    padding: 2px 10px;
+    border-radius: var(--radius-full);
+}
+
+.wg-status-badge.completed {
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--color-success);
+}
+
+.wg-status-badge.in_progress {
+    background: rgba(59, 130, 246, 0.12);
+    color: var(--color-primary-light);
+}
+
+.wg-status-badge.pending {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+
+.wg-steps-count {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+}
+
+/* Step Items */
+.wg-steps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
+    padding: var(--space-4) var(--space-5);
+    margin-bottom: var(--space-4);
+}
+
+.wg-step {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-4);
+    padding: var(--space-3) 0;
+    position: relative;
+}
+
+.wg-step-line {
+    position: absolute;
+    left: 13px;
+    top: 36px;
+    bottom: -12px;
+    width: 2px;
+    background: var(--border-color);
+}
+
+.wg-step:last-child .wg-step-line {
+    display: none;
+}
+
+.wg-step.done .wg-step-line {
+    background: var(--color-accent);
+    opacity: 0.3;
+}
+
+.wg-step-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: var(--text-xs);
+    font-weight: var(--font-bold);
+    background: var(--bg-tertiary);
+    border: 2px solid var(--border-color);
+    color: var(--text-muted);
+    z-index: 1;
+    transition: all var(--transition-base);
+}
+
+.wg-step.done .wg-step-dot {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: white;
+}
+
+.wg-step.current .wg-step-dot {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: white;
+    box-shadow: 0 0 12px var(--color-primary-glow);
+}
+
+.wg-step-content {
+    flex: 1;
+    padding-top: var(--space-1);
+}
+
+.wg-step-text {
+    font-size: var(--text-sm);
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
+
+.wg-step.done .wg-step-text {
+    text-decoration: line-through;
+    color: var(--text-muted);
+}
+
+.wg-step.current .wg-step-text {
+    color: var(--text-primary);
+    font-weight: var(--font-medium);
+}
+
+.wg-step-ref {
+    display: inline-block;
+    font-size: var(--text-xs);
+    color: var(--color-primary-light);
+    margin-top: var(--space-1);
+}
+
+.wg-step-current-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    font-size: var(--text-xs);
+    font-weight: var(--font-semibold);
+    color: var(--color-primary-light);
+    padding: 2px 10px;
+    background: rgba(59, 130, 246, 0.1);
+    border-radius: var(--radius-full);
+}
+
+.wg-step-pulse {
+    width: 6px;
+    height: 6px;
+    background: var(--color-primary);
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+}
+
+.wg-step-check-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+    margin-top: var(--space-1);
+}
+
+.wg-step-check-btn:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    background: rgba(6, 214, 160, 0.08);
+}
+
+/* Safety */
+.wg-safety {
+    border-radius: var(--radius-xl);
+    padding: var(--space-5);
+    border-left: 3px solid var(--color-warning);
+}
+
+.wg-safety-title {
+    font-size: var(--text-base);
+    font-weight: var(--font-semibold);
+    margin-bottom: var(--space-3);
+}
+
+.wg-safety-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.wg-safety-list li {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    padding-left: var(--space-4);
+    position: relative;
+}
+
+.wg-safety-list li::before {
+    content: '•';
+    position: absolute;
+    left: var(--space-1);
+    color: var(--color-warning);
+}
+
+@media (max-width: 768px) {
+    .wg-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .wg-phases {
+        position: static;
+    }
+}

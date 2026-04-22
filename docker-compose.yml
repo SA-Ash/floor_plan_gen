@@ -1,0 +1,46 @@
+services:
+  # ── AI Engine (Python FastAPI) ──
+  ai-engine:
+    build:
+      context: ./Build_my_Home/Other_models_Fastapi
+      dockerfile: Dockerfile.ai
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+    networks:
+      - bmh-network
+
+  # ── API Backend (Node.js) ──
+  api-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - PYTHON_BIM_URL=http://ai-engine:8001
+      - CORS_ORIGIN=http://localhost:5173
+    depends_on:
+      - ai-engine
+    networks:
+      - bmh-network
+
+  # ── Web Frontend (Nginx) ──
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.web
+    ports:
+      - "5173:80"
+    environment:
+      - VITE_API_URL=http://localhost:8000/api
+    depends_on:
+      - api-backend
+    networks:
+      - bmh-network
+
+networks:
+  bmh-network:
+    driver: bridge
