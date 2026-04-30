@@ -85,11 +85,11 @@ class QuickFloorPlanner:
     def plan(self, rooms_spec: dict, n_floors: int) -> dict[str, list[dict]]:
         random.seed(time.time() * 1000 + id(self))
 
-        # ── Get plot dimensions (ft → grid units ~1m each) ──
+        # ── Plot dimensions (ft → metres) — upper bound only ──
         pw = rooms_spec.get("plot_width") or 40
         pl = rooms_spec.get("plot_length") or 60
-        grid_w = max(8, int(round(pw * 0.3)))   # ft to metres approx
-        grid_h = max(10, int(round(pl * 0.3)))
+        max_w = max(8, int(round(pw * 0.3)))
+        max_h = max(10, int(round(pl * 0.3)))
 
         r_counts = rooms_spec.get("rooms", {})
         all_rooms = []
@@ -118,24 +118,41 @@ class QuickFloorPlanner:
         if not public:
             public = ["living_room"]
 
-        # Split private rooms + bathrooms across floors
+        # ── Ensure each floor has at least kitchen + living for multi-floor ──
+        if n_floors > 1:
+            while len(service) < n_floors:
+                service.append("kitchen")
+            while len(public) < n_floors:
+                public.append("living_room")
+
+        # ── Compute building size from actual room requirements ──
+        total_area = sum(self.SIZES.get(r, self.DEFAULT_SIZE)[0] *
+                         self.SIZES.get(r, self.DEFAULT_SIZE)[1]
+                         for r in (["entrance"] + public + service + private + wet))
+        total_area += len(private) * 2  # corridor overhead
+        per_floor_area = total_area / max(1, n_floors)
+        grid_w = max(8, min(max_w, int(math.ceil(math.sqrt(per_floor_area * 1.4)))))
+        grid_h = max(10, min(max_h, int(math.ceil(per_floor_area / grid_w)) + 6))
+
+        # ── Distribute ALL room types evenly across floors ──
+        chunk_pub  = math.ceil(len(public) / max(1, n_floors))
+        chunk_svc  = math.ceil(len(service) / max(1, n_floors))
         chunk_priv = math.ceil(len(private) / max(1, n_floors))
         chunk_wet  = math.ceil(len(wet) / max(1, n_floors))
 
         building = {}
         for fn in range(1, n_floors + 1):
-            if fn == 1:
-                floor_pub  = public
-                floor_svc  = service
-                floor_priv = private[:chunk_priv]
-                floor_wet  = wet[:chunk_wet]
-                floor_out  = outdoor
-            else:
-                floor_pub  = []
-                floor_svc  = []
-                floor_priv = private[(fn-1)*chunk_priv : fn*chunk_priv]
-                floor_wet  = wet[(fn-1)*chunk_wet : fn*chunk_wet]
-                floor_out  = []
+            floor_pub  = public[(fn-1)*chunk_pub : fn*chunk_pub]
+            floor_svc  = service[(fn-1)*chunk_svc : fn*chunk_svc]
+            floor_priv = private[(fn-1)*chunk_priv : fn*chunk_priv]
+            floor_wet  = wet[(fn-1)*chunk_wet : fn*chunk_wet]
+            floor_out  = outdoor if fn == 1 else []
+
+            # Every floor must have at least a living + kitchen
+            if not floor_pub:
+                floor_pub = ["living_room"]
+            if not floor_svc:
+                floor_svc = ["kitchen"]
 
             building[f"floor_{fn}"] = self._layout_floor(
                 floor_pub, floor_svc, floor_priv, list(floor_wet), circ if n_floors > 1 else [],
@@ -145,6 +162,7 @@ class QuickFloorPlanner:
         print(f"  [FloorPlanner] Generated {len(building)} floors on {grid_w}x{grid_h} grid, "
               f"rooms per floor: {[len(v) for v in building.values()]}")
         return building
+
 
     # ── Row-based helper: place rooms in a row and stretch to fill width ──
     def _place_row(self, room_list, x0, y, row_h, grid_w, floor_num):
@@ -176,61 +194,84 @@ class QuickFloorPlanner:
         return placed
 
     def _place_private_zone(self, private, wet, zone_y, zone_h, grid_w, floor_num):
-        """Place bedrooms with realistically-sized attached bathrooms.
-        Bathrooms are ~3m tall (top of column), bedrooms fill the rest."""
+        """Place bedrooms with small bathrooms tucked beside them.
+        Bedrooms expand to fill available width — no wasted corridor."""
         placed = []
-        bath_h = 3  # bathroom height (realistic ~3m)
+        BATH_W, BATH_H = 2, 3  # bathroom ~6 sq m (fixed small size)
 
         if not private and not wet:
             private = ["bedroom"]
 
-        # Build pairs: each bedroom gets a bathroom if available
+        # Build pairs
         pairs = []
         for rtype in private:
             if wet:
-                pairs.append((rtype, "bathroom"))
+                pairs.append((rtype, True))
                 wet.pop(0)
             else:
-                pairs.append((rtype, None))
-        # Remaining bathrooms get standalone slots
-        while wet:
-            pairs.append((None, "bathroom"))
-            wet.pop(0)
+                pairs.append((rtype, False))
 
-        # Calculate column widths — stretch to fill grid_w
-        n_cols = len(pairs)
-        if n_cols == 0:
+        if not pairs:
             return placed
-        base_w = grid_w // n_cols
-        extra = grid_w - base_w * n_cols
-        widths = [base_w + (1 if i < extra else 0) for i in range(n_cols)]
 
-        cx = 0
-        for i, (bedroom, bathroom) in enumerate(pairs):
-            col_w = widths[i]
-            if bedroom and bathroom:
-                # Bathroom at top of column (small), bedroom below (large)
-                bh = min(bath_h, zone_h - 2)
-                placed.append({"room": "bathroom", "x": cx, "y": zone_y,
-                               "w": col_w, "h": bh, "floor": floor_num})
-                bed_h = zone_h - bh
-                placed.append({"room": bedroom, "x": cx, "y": zone_y + bh,
-                               "w": col_w, "h": bed_h, "floor": floor_num})
-            elif bedroom:
-                # Full height bedroom
-                placed.append({"room": bedroom, "x": cx, "y": zone_y,
-                               "w": col_w, "h": zone_h, "floor": floor_num})
-            elif bathroom:
-                # Standalone bathroom (smaller)
-                bh = min(bath_h, zone_h)
-                placed.append({"room": "bathroom", "x": cx, "y": zone_y,
-                               "w": col_w, "h": bh, "floor": floor_num})
-                # Fill remaining with storage/utility
-                if zone_h - bh > 1:
-                    placed.append({"room": "storage", "x": cx, "y": zone_y + bh,
-                                   "w": col_w, "h": zone_h - bh, "floor": floor_num})
-            cx += col_w
+        # Count how many pairs fit per row
+        n_pairs = len(pairs)
+        row_h = min(max(4, zone_h // max(1, math.ceil(n_pairs * 6 / grid_w))), zone_h)
+
+        # Layout pairs in rows
+        cx, cy = 0, zone_y
+        row_items = []  # collect items for current row
+
+        def flush_row(items, y, h):
+            """Place a row of bedroom(+bath) items, expanding to fill grid_w."""
+            if not items:
+                return
+            # Calculate total natural width
+            total_nat = sum(it["nat_w"] for it in items)
+            avail = grid_w
+            rx = 0
+            for idx, it in enumerate(items):
+                # Proportional width, last item takes remainder
+                if idx == len(items) - 1:
+                    w = avail - rx
+                else:
+                    w = max(3, int(round(it["nat_w"] * avail / total_nat)))
+
+                if it["has_bath"]:
+                    # Bathroom gets fixed small width, bedroom gets the rest
+                    bw = min(BATH_W, max(2, w // 3))
+                    bed_w = w - bw
+                    placed.append({"room": it["room"], "x": rx, "y": y,
+                                   "w": bed_w, "h": h, "floor": floor_num})
+                    placed.append({"room": "bathroom", "x": rx + bed_w, "y": y,
+                                   "w": bw, "h": min(BATH_H, h), "floor": floor_num})
+                    # Fill gap below bathroom if any
+                    if h > BATH_H:
+                        placed.append({"room": "storage", "x": rx + bed_w, "y": y + BATH_H,
+                                       "w": bw, "h": h - BATH_H, "floor": floor_num})
+                else:
+                    placed.append({"room": it["room"], "x": rx, "y": y,
+                                   "w": w, "h": h, "floor": floor_num})
+                rx += w
+
+        for bedroom, has_bath in pairs:
+            nat_w = 6 if has_bath else 4  # natural width of this pair
+            # Check if adding this pair would exceed grid width
+            total_row_nat = sum(it["nat_w"] for it in row_items) + nat_w
+            if total_row_nat > grid_w * 1.8 and row_items:
+                # Flush current row
+                flush_row(row_items, cy, row_h)
+                cy += row_h
+                row_items = []
+
+            row_items.append({"room": bedroom, "has_bath": has_bath, "nat_w": nat_w})
+
+        # Flush last row — expand height to fill remaining zone
+        remaining_h = max(row_h, zone_h - (cy - zone_y))
+        flush_row(row_items, cy, remaining_h)
+
         return placed
+
 
     def _layout_floor(self, public, service, private, wet, circ, outdoor,
                       floor_num, grid_w, grid_h):
