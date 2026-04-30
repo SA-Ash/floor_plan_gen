@@ -52,114 +52,243 @@ GRID = 20
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Quick rule-based floor plan generator (no RL needed for pipeline demo)
+# Zone-based architectural floor plan generator
 # ─────────────────────────────────────────────────────────────────────────────
 
 class QuickFloorPlanner:
     """
-    Deterministic layout generator — packs rooms left-to-right, row-by-row.
-    Used when the RL environment is not yet trained.
+    Zone-based architectural layout generator.
+    Places rooms in logical zones: public (front), service, private (back),
+    connected by a corridor, with entrance and proper adjacency rules.
     """
 
+    # Room sizes in grid units (width, depth) — consistent, no random wobble
     SIZES = {
-        "living_room":    (6,5), "kitchen":    (4,4), "dining_room": (4,4),
-        "master_bedroom": (5,4), "bedroom":    (4,4), "bathroom":    (2,2),
-        "study":          (3,3), "parking":    (4,5), "home_office": (3,3),
-        "gym":            (4,4), "staircase":  (3,3), "elevator":    (2,2),
-        "storage":        (2,2), "laundry":    (2,2), "terrace":     (3,3),
-        "balcony":        (2,2), "dining":     (3,3), "guest_room":  (3,4),
+        "entrance":       (3, 2), "living_room":  (6, 5), "living":       (6, 5),
+        "kitchen":        (4, 3), "dining_room":  (4, 4), "dining":       (4, 3),
+        "master_bedroom": (5, 4), "bedroom":      (4, 4), "bathroom":     (3, 2),
+        "guest_room":     (4, 3), "study":        (3, 3), "home_office":  (3, 3),
+        "parking":        (5, 5), "gym":          (4, 4), "staircase":    (3, 3),
+        "elevator":       (2, 2), "storage":      (2, 2), "laundry":     (2, 2),
+        "terrace":        (4, 3), "balcony":      (3, 2), "corridor":    (1, 1),
     }
     DEFAULT_SIZE = (3, 3)
 
+    # Zone classification
+    PUBLIC   = {"living_room", "living", "dining_room", "dining", "entrance"}
+    SERVICE  = {"kitchen", "laundry", "storage"}
+    PRIVATE  = {"bedroom", "master_bedroom", "guest_room", "study", "home_office"}
+    WET      = {"bathroom"}
+    CIRC     = {"staircase", "elevator"}
+    OUTDOOR  = {"parking", "terrace", "balcony", "gym"}
+
     def plan(self, rooms_spec: dict, n_floors: int) -> dict[str, list[dict]]:
-        # ── CRITICAL: reseed RNG every call for unique outputs ──
         random.seed(time.time() * 1000 + id(self))
 
-        building = {}
-        r_counts = rooms_spec.get("rooms", {})
+        # ── Get plot dimensions (ft → grid units ~1m each) ──
+        pw = rooms_spec.get("plot_width") or 40
+        pl = rooms_spec.get("plot_length") or 60
+        grid_w = max(8, int(round(pw * 0.3)))   # ft to metres approx
+        grid_h = max(10, int(round(pl * 0.3)))
 
-        all_rooms_list = []
+        r_counts = rooms_spec.get("rooms", {})
+        all_rooms = []
         for k, v in r_counts.items():
             if isinstance(v, int) and v > 0:
-                all_rooms_list.extend([k] * v)
+                all_rooms.extend([k] * v)
 
-        # Fallback only if NLP extracted zero rooms
-        if not all_rooms_list:
+        if not all_rooms:
             btype = rooms_spec.get("building_type", "house")
             if btype == "office":
-                all_rooms_list = ["study", "home_office", "bathroom", "kitchen", "study"]
-            elif btype == "skyscraper":
-                all_rooms_list = ["living_room", "kitchen", "bathroom", "bathroom", "bedroom", "bedroom", "study", "balcony"] * 2
+                all_rooms = ["study", "home_office", "bathroom", "kitchen", "study"]
             elif btype == "apartment":
-                all_rooms_list = ["living_room", "kitchen", "bathroom", "bedroom", "balcony"]
+                all_rooms = ["living_room", "kitchen", "bathroom", "bedroom", "balcony"]
             else:
-                all_rooms_list = ["living_room", "kitchen", "dining_room",
-                                  "bathroom", "master_bedroom", "bedroom", "bedroom"]
+                all_rooms = ["living_room", "kitchen", "dining_room",
+                             "bathroom", "master_bedroom", "bedroom", "bedroom"]
 
+        # Classify rooms into zones
+        public  = [r for r in all_rooms if r in self.PUBLIC]
+        service = [r for r in all_rooms if r in self.SERVICE]
+        private = [r for r in all_rooms if r in self.PRIVATE]
+        wet     = [r for r in all_rooms if r in self.WET]
+        circ    = [r for r in all_rooms if r in self.CIRC]
+        outdoor = [r for r in all_rooms if r in self.OUTDOOR]
 
-        # Shuffle for unique order every call
-        random.shuffle(all_rooms_list)
+        if not public:
+            public = ["living_room"]
 
-        # Split across floors
-        chunk_size = math.ceil(len(all_rooms_list) / max(1, n_floors))
+        # Split private rooms + bathrooms across floors
+        chunk_priv = math.ceil(len(private) / max(1, n_floors))
+        chunk_wet  = math.ceil(len(wet) / max(1, n_floors))
 
+        building = {}
         for fn in range(1, n_floors + 1):
-            floor_rooms = all_rooms_list[(fn - 1) * chunk_size : fn * chunk_size]
-            if not floor_rooms and fn == 1:
-                floor_rooms = ["living_room"]
-            building[f"floor_{fn}"] = self._pack(floor_rooms, fn)
+            if fn == 1:
+                floor_pub  = public
+                floor_svc  = service
+                floor_priv = private[:chunk_priv]
+                floor_wet  = wet[:chunk_wet]
+                floor_out  = outdoor
+            else:
+                floor_pub  = []
+                floor_svc  = []
+                floor_priv = private[(fn-1)*chunk_priv : fn*chunk_priv]
+                floor_wet  = wet[(fn-1)*chunk_wet : fn*chunk_wet]
+                floor_out  = []
 
-        print(f"  [FloorPlanner] Generated {len(building)} floors, "
+            building[f"floor_{fn}"] = self._layout_floor(
+                floor_pub, floor_svc, floor_priv, list(floor_wet), circ if n_floors > 1 else [],
+                floor_out, fn, grid_w, grid_h
+            )
+
+        print(f"  [FloorPlanner] Generated {len(building)} floors on {grid_w}x{grid_h} grid, "
               f"rooms per floor: {[len(v) for v in building.values()]}")
         return building
 
-    def _pack(self, room_types: list[str], floor_num: int) -> list[dict]:
-        placed = []
-        # Randomized building envelope for dynamic sizing
-        grid_w = random.randint(18, 24)
-        grid_h = random.randint(18, 24)
-        x, y, row_h = 0, 0, 0
-
-        # Staircase + elevator for upper floors
-        if floor_num > 1:
-            placed.append({"room": "staircase", "x": 0, "y": grid_h - 4,
-                           "w": 3, "h": 3, "floor": floor_num, "structural": True})
-            placed.append({"room": "elevator", "x": 3, "y": grid_h - 4,
-                           "w": 2, "h": 2, "floor": floor_num, "structural": True})
-
-        # Shuffle room order for dynamic layout
-        shuffled_rooms = list(room_types)
-        random.shuffle(shuffled_rooms)
-
-        failed = []
-        for rtype in shuffled_rooms:
+    # ── Row-based helper: place rooms in a row and stretch to fill width ──
+    def _place_row(self, room_list, x0, y, row_h, grid_w, floor_num):
+        """Place rooms in a horizontal row, stretching widths to fill grid_w."""
+        if not room_list:
+            return []
+        # Get natural sizes
+        items = []
+        for rtype in room_list:
             w, h = self.SIZES.get(rtype, self.DEFAULT_SIZE)
-            # Dynamic wobble: ±1 (minimum 2)
-            w = max(2, w + random.choice([-1, 0, 0, 1]))
-            h = max(2, h + random.choice([-1, 0, 0, 1]))
+            items.append({"room": rtype, "nat_w": w, "h": min(h, row_h)})
 
-            if x + w > grid_w:
-                y += row_h; x = 0; row_h = 0
-            if y + h > grid_h - 4:
-                failed.append(rtype)
-                continue
-            placed.append({"room": rtype, "x": x, "y": y,
+        total_nat = sum(it["nat_w"] for it in items)
+        avail = grid_w - x0
+
+        # Stretch widths proportionally to fill available space
+        placed = []
+        cx = x0
+        for i, it in enumerate(items):
+            if i == len(items) - 1:
+                # Last room takes all remaining width
+                w = avail - (cx - x0)
+            else:
+                w = max(2, int(round(it["nat_w"] * avail / total_nat)))
+            h = row_h
+            placed.append({"room": it["room"], "x": cx, "y": y,
                            "w": w, "h": h, "floor": floor_num})
-            x += w
-            row_h = max(row_h, h)
+            cx += w
+        return placed
 
-        # Second pass: try to fit failed rooms with minimum sizes
-        if failed:
-            for rtype in failed:
-                w, h = 2, 2
-                if x + w > grid_w:
-                    y += row_h; x = 0; row_h = 0
-                if y + h > grid_h - 4:
-                    continue
-                placed.append({"room": rtype, "x": x, "y": y,
-                               "w": w, "h": h, "floor": floor_num})
-                x += w
-                row_h = max(row_h, h)
+    def _place_private_zone(self, private, wet, zone_y, zone_h, grid_w, floor_num):
+        """Place bedrooms with realistically-sized attached bathrooms.
+        Bathrooms are ~3m tall (top of column), bedrooms fill the rest."""
+        placed = []
+        bath_h = 3  # bathroom height (realistic ~3m)
+
+        if not private and not wet:
+            private = ["bedroom"]
+
+        # Build pairs: each bedroom gets a bathroom if available
+        pairs = []
+        for rtype in private:
+            if wet:
+                pairs.append((rtype, "bathroom"))
+                wet.pop(0)
+            else:
+                pairs.append((rtype, None))
+        # Remaining bathrooms get standalone slots
+        while wet:
+            pairs.append((None, "bathroom"))
+            wet.pop(0)
+
+        # Calculate column widths — stretch to fill grid_w
+        n_cols = len(pairs)
+        if n_cols == 0:
+            return placed
+        base_w = grid_w // n_cols
+        extra = grid_w - base_w * n_cols
+        widths = [base_w + (1 if i < extra else 0) for i in range(n_cols)]
+
+        cx = 0
+        for i, (bedroom, bathroom) in enumerate(pairs):
+            col_w = widths[i]
+            if bedroom and bathroom:
+                # Bathroom at top of column (small), bedroom below (large)
+                bh = min(bath_h, zone_h - 2)
+                placed.append({"room": "bathroom", "x": cx, "y": zone_y,
+                               "w": col_w, "h": bh, "floor": floor_num})
+                bed_h = zone_h - bh
+                placed.append({"room": bedroom, "x": cx, "y": zone_y + bh,
+                               "w": col_w, "h": bed_h, "floor": floor_num})
+            elif bedroom:
+                # Full height bedroom
+                placed.append({"room": bedroom, "x": cx, "y": zone_y,
+                               "w": col_w, "h": zone_h, "floor": floor_num})
+            elif bathroom:
+                # Standalone bathroom (smaller)
+                bh = min(bath_h, zone_h)
+                placed.append({"room": "bathroom", "x": cx, "y": zone_y,
+                               "w": col_w, "h": bh, "floor": floor_num})
+                # Fill remaining with storage/utility
+                if zone_h - bh > 1:
+                    placed.append({"room": "storage", "x": cx, "y": zone_y + bh,
+                                   "w": col_w, "h": zone_h - bh, "floor": floor_num})
+            cx += col_w
+        return placed
+
+    def _layout_floor(self, public, service, private, wet, circ, outdoor,
+                      floor_num, grid_w, grid_h):
+        placed = []
+
+        # ── Reserve space for circulation at bottom ──
+        circ_h = 0
+        if circ:
+            circ_h = 3  # staircase/elevator height
+        usable_h = grid_h - circ_h
+
+        if floor_num == 1:
+            # ── GROUND FLOOR LAYOUT ──
+            # Row 1: Entrance + Public + Service (top of plan)
+            row1_rooms = ["entrance"] + public + service
+            row1_h = max(self.SIZES.get(r, self.DEFAULT_SIZE)[1] for r in row1_rooms)
+            row1 = self._place_row(row1_rooms, 0, 0, row1_h, grid_w, floor_num)
+            placed.extend(row1)
+
+            # Row 2: Corridor
+            corr_y = row1_h
+            placed.append({"room": "corridor", "x": 0, "y": corr_y,
+                           "w": grid_w, "h": 1, "floor": floor_num})
+
+            # Row 3: Private zone — bedrooms with realistically-sized bathrooms
+            priv_y = corr_y + 1
+            priv_h = max(usable_h - priv_y, 4)
+            placed.extend(self._place_private_zone(
+                private, wet, priv_y, priv_h, grid_w, floor_num))
+
+            # Outdoor (parking etc) — place below private if space
+            for rtype in outdoor:
+                ow, oh = self.SIZES.get(rtype, (4, 3))
+                out_y = priv_y + priv_h
+                if out_y + oh <= usable_h:
+                    placed.append({"room": rtype, "x": 0, "y": out_y,
+                                   "w": grid_w, "h": oh, "floor": floor_num})
+
+        else:
+            # ── UPPER FLOOR LAYOUT ──
+            # Bedrooms with attached bathrooms filling the full footprint
+            priv_h = max(usable_h, 4)
+            placed.extend(self._place_private_zone(
+                private, wet, 0, priv_h, grid_w, floor_num))
+
+        # ── Circulation (staircase/elevator) — bottom strip, full width ──
+        if circ:
+            circ_y = usable_h
+            cx = 0
+            for rtype in circ:
+                w, h = self.SIZES.get(rtype, (3, 3))
+                placed.append({"room": rtype, "x": cx, "y": circ_y,
+                               "w": w, "h": circ_h, "floor": floor_num, "structural": True})
+                cx += w
+            # Fill remaining circ row width
+            if cx < grid_w:
+                placed.append({"room": "corridor", "x": cx, "y": circ_y,
+                               "w": grid_w - cx, "h": circ_h, "floor": floor_num})
 
         return placed
 
@@ -390,27 +519,35 @@ class BIMPipeline:
         )
 
     def _fallback_structural(self, building: dict) -> dict:
-        """Simple column grid fallback when structural module unavailable."""
+        """Column grid fallback — only within actual building footprint."""
         result = {}
         for key, layout in building.items():
-            cols, beams = [], []
-            for x in range(0, GRID+1, 3):
-                for y in range(0, GRID+1, 3):
+            if not layout:
+                result[key] = {"columns": [], "beams": [], "slabs": []}
+                continue
+            # Compute actual building bounding box from placed rooms
+            max_x = max(r['x'] + r['w'] for r in layout)
+            max_y = max(r['y'] + r['h'] for r in layout)
+            # Place columns at ~4m spacing within bounds only
+            spacing = 4
+            cols = []
+            for x in range(0, max_x + 1, spacing):
+                for y in range(0, max_y + 1, spacing):
                     cols.append([float(x), float(y)])
-            result[key] = {"columns": cols, "beams": beams, "slabs": []}
+            # Also add boundary columns at max extents if not already covered
+            for x in range(0, max_x + 1, spacing):
+                if [float(x), float(max_y)] not in cols:
+                    cols.append([float(x), float(max_y)])
+            for y in range(0, max_y + 1, spacing):
+                if [float(max_x), float(y)] not in cols:
+                    cols.append([float(max_x), float(y)])
+            result[key] = {"columns": cols, "beams": [], "slabs": []}
         return result
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# FastAPI-compatible app definition
-# ─────────────────────────────────────────────────────────────────────────────
 
 class BIMApp:
-    """
-    FastAPI-compatible application.
-    In production: wrap with @app.post("/generate") decorators.
-    Standalone: call app.generate(text) directly.
-    """
+    
 
     def __init__(self):
         self.pipeline = BIMPipeline(verbose=True)

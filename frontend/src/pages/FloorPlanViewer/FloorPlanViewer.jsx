@@ -7,7 +7,10 @@ import { FiGrid, FiZoomIn, FiZoomOut, FiRotateCw, FiLoader, FiAlertCircle } from
 import './FloorPlanViewer.css';
 
 const ROOM_COLORS = {
+    entrance:       { fill: 'rgba(251,191,36,0.18)',  border: '#fbbf24' },
+    corridor:       { fill: 'rgba(148,163,184,0.08)', border: '#475569' },
     living_room:    { fill: 'rgba(16,185,129,0.15)',  border: '#10b981' },
+    living:         { fill: 'rgba(16,185,129,0.15)',  border: '#10b981' },
     kitchen:        { fill: 'rgba(245,158,11,0.15)',  border: '#f59e0b' },
     dining_room:    { fill: 'rgba(139,92,246,0.15)',  border: '#8b5cf6' },
     dining:         { fill: 'rgba(139,92,246,0.15)',  border: '#8b5cf6' },

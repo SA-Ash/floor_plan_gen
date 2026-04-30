@@ -326,27 +326,35 @@ class StructuralGridGenerator:
     ) -> list[Column]:
         """
         Place columns on a variable-spacing grid driven by ML predictions.
-        Denser where loads are high, sparser where loads are light.
+        Only places columns within the actual building bounding box.
         """
         G       = self.grid_size
         columns = []
         visited = set()
 
-        x = 0.0
-        while x <= G:
-            y = 0.0
-            while y <= G:
-                xi, yi = min(int(x), G-1), min(int(y), G-1)
-                # Predicted spacing at this cell
-                spacing = float(spacing_map[xi, yi]) if spacing_map[xi, yi] > 0 else 4.5
+        # Compute actual building bounding box from room layout
+        if layout:
+            build_max_x = max(r['x'] + r['w'] for r in layout)
+            build_max_y = max(r['y'] + r['h'] for r in layout)
+        else:
+            build_max_x = G
+            build_max_y = G
 
-                # Clamp to constraints
+        # Only sweep within building footprint (+ small margin)
+        limit_x = min(build_max_x + 1, G)
+        limit_y = min(build_max_y + 1, G)
+
+        x = 0.0
+        while x <= limit_x:
+            y = 0.0
+            while y <= limit_y:
+                xi, yi = min(int(x), G-1), min(int(y), G-1)
+                spacing = float(spacing_map[xi, yi]) if spacing_map[xi, yi] > 0 else 4.5
                 spacing = float(np.clip(spacing, self.min_spacing, self.max_span))
 
                 key = (round(x, 1), round(y, 1))
                 if key not in visited:
                     load = float(load_map.load_at(xi, yi))
-                    # Only place column if inside or on boundary of building
                     columns.append(Column(
                         x=round(x, 1), y=round(y, 1),
                         load_kn=load * spacing**2 / 2,
@@ -355,12 +363,10 @@ class StructuralGridGenerator:
                     visited.add(key)
 
                 y += spacing
-            x_next = x
             xi_ = min(int(x), G-1)
-            # Step in X using the average predicted spacing along this column line
             col_spacings = [
                 float(np.clip(spacing_map[xi_, min(int(y_), G-1)], self.min_spacing, self.max_span))
-                for y_ in np.arange(0, G, 2)
+                for y_ in np.arange(0, limit_y, 2)
             ]
             x_step = float(np.mean(col_spacings)) if col_spacings else 4.5
             x += x_step
