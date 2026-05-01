@@ -340,9 +340,9 @@ class StructuralGridGenerator:
             build_max_x = G
             build_max_y = G
 
-        # Only sweep within building footprint (+ small margin)
-        limit_x = min(build_max_x + 1, G)
-        limit_y = min(build_max_y + 1, G)
+        # Only sweep within building footprint (strict bounds)
+        limit_x = min(build_max_x, G)
+        limit_y = min(build_max_y, G)
 
         x = 0.0
         while x <= limit_x:

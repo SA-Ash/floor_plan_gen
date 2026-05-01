@@ -48,6 +48,13 @@ try:
 except ImportError:
     STRUCTURAL_OK = False
 
+# Learned floor plan model (trained on HouseExpo + RPLAN)
+try:
+    from floorplan_model import LearnedFloorPlanner
+    LEARNED_FP_OK = True
+except ImportError:
+    LEARNED_FP_OK = False
+
 GRID = 20
 
 
@@ -62,7 +69,7 @@ class QuickFloorPlanner:
     connected by a corridor, with entrance and proper adjacency rules.
     """
 
-    # Room sizes in grid units (width, depth) — consistent, no random wobble
+    # Room sizes — learned from dataset or fallback
     SIZES = {
         "entrance":       (3, 2), "living_room":  (6, 5), "living":       (6, 5),
         "kitchen":        (4, 3), "dining_room":  (4, 4), "dining":       (4, 3),
@@ -73,6 +80,9 @@ class QuickFloorPlanner:
         "terrace":        (4, 3), "balcony":      (3, 2), "corridor":    (1, 1),
     }
     DEFAULT_SIZE = (3, 3)
+
+    # Learned model (set by pipeline during prepare())
+    _learned_model: object = None
 
     # Zone classification
     PUBLIC   = {"living_room", "living", "dining_room", "dining", "entrance"}
@@ -193,7 +203,7 @@ class QuickFloorPlanner:
             cx += w
         return placed
 
-    def _place_private_zone(self, private, wet, zone_y, zone_h, grid_w, floor_num):
+    def _place_private_zone(self, private, wet, zone_y, zone_h, grid_w, floor_num, x_offset=0):
         """Place bedrooms with small bathrooms tucked beside them.
         Bedrooms expand to fill available width — no wasted corridor."""
         placed = []
@@ -229,11 +239,11 @@ class QuickFloorPlanner:
             # Calculate total natural width
             total_nat = sum(it["nat_w"] for it in items)
             avail = grid_w
-            rx = 0
+            rx = x_offset
             for idx, it in enumerate(items):
                 # Proportional width, last item takes remainder
                 if idx == len(items) - 1:
-                    w = avail - rx
+                    w = avail - (rx - x_offset)
                 else:
                     w = max(3, int(round(it["nat_w"] * avail / total_nat)))
 
@@ -273,6 +283,19 @@ class QuickFloorPlanner:
         return placed
 
 
+    # Building shape templates
+    SHAPES = ["rectangle", "l_shape_right", "l_shape_left", "t_shape"]
+
+    def _vary_size(self, room_type):
+        """Get room size from learned model or fallback with variation."""
+        if self._learned_model and self._learned_model.trained:
+            return self._learned_model.sample_size(room_type)
+        # Fallback with random variation
+        base_w, base_h = self.SIZES.get(room_type, self.DEFAULT_SIZE)
+        w = max(2, base_w + random.choice([-1, 0, 0, 1]))
+        h = max(2, base_h + random.choice([-1, 0, 0, 1]))
+        return w, h
+
     def _layout_floor(self, public, service, private, wet, circ, outdoor,
                       floor_num, grid_w, grid_h):
         placed = []
@@ -280,53 +303,90 @@ class QuickFloorPlanner:
         # ── Reserve space for circulation at bottom ──
         circ_h = 0
         if circ:
-            circ_h = 3  # staircase/elevator height
+            circ_h = 3
         usable_h = grid_h - circ_h
+
+        # ── Pick building shape (from learned data or deterministic) ──
+        n_rooms = len(public) + len(service) + len(private)
+        if self._learned_model and self._learned_model.trained:
+            plot_aspect = grid_w / max(grid_h, 1)
+            shape = self._learned_model.sample_shape(n_rooms, plot_aspect)
+        else:
+            shape = self.SHAPES[n_rooms % len(self.SHAPES)]
+        # Small buildings stay rectangular
+        if grid_w < 10 or n_rooms < 4:
+            shape = "rectangle"
+
+        # Compute zone widths based on shape
+        if shape == "l_shape_right":
+            pub_w = grid_w
+            priv_w = max(6, int(grid_w * 0.65))
+            priv_x = 0
+        elif shape == "l_shape_left":
+            pub_w = grid_w
+            priv_w = max(6, int(grid_w * 0.65))
+            priv_x = grid_w - priv_w
+        elif shape == "t_shape":
+            pub_w = grid_w
+            priv_w = max(6, int(grid_w * 0.75))
+            priv_x = (grid_w - priv_w) // 2
+        else:
+            pub_w = grid_w
+            priv_w = grid_w
+            priv_x = 0
 
         if floor_num == 1:
             # ── GROUND FLOOR LAYOUT ──
-            # Row 1: Entrance + Public + Service (top of plan)
+            # Row 1: Entrance + Public + Service (full width)
             row1_rooms = ["entrance"] + public + service
-            row1_h = max(self.SIZES.get(r, self.DEFAULT_SIZE)[1] for r in row1_rooms)
-            row1 = self._place_row(row1_rooms, 0, 0, row1_h, grid_w, floor_num)
+            row1_h = max(self._vary_size(r)[1] for r in row1_rooms)
+            row1 = self._place_row(row1_rooms, 0, 0, row1_h, pub_w, floor_num)
             placed.extend(row1)
 
-            # Row 2: Corridor
+            # Row 2: Corridor (full pub width)
             corr_y = row1_h
             placed.append({"room": "corridor", "x": 0, "y": corr_y,
-                           "w": grid_w, "h": 1, "floor": floor_num})
+                           "w": pub_w, "h": 1, "floor": floor_num})
 
-            # Row 3: Private zone — bedrooms with realistically-sized bathrooms
+            # Row 3: Private zone (may be narrower for L/T shapes)
             priv_y = corr_y + 1
             priv_h = max(usable_h - priv_y, 4)
             placed.extend(self._place_private_zone(
-                private, wet, priv_y, priv_h, grid_w, floor_num))
+                private, wet, priv_y, priv_h, priv_w, floor_num, x_offset=priv_x))
 
-            # Outdoor (parking etc) — place below private if space
+            # Outdoor (parking etc)
             for rtype in outdoor:
-                ow, oh = self.SIZES.get(rtype, (4, 3))
+                ow, oh = self._vary_size(rtype)
                 out_y = priv_y + priv_h
                 if out_y + oh <= usable_h:
                     placed.append({"room": rtype, "x": 0, "y": out_y,
-                                   "w": grid_w, "h": oh, "floor": floor_num})
+                                   "w": pub_w, "h": oh, "floor": floor_num})
 
         else:
             # ── UPPER FLOOR LAYOUT ──
-            # Bedrooms with attached bathrooms filling the full footprint
-            priv_h = max(usable_h, 4)
-            placed.extend(self._place_private_zone(
-                private, wet, 0, priv_h, grid_w, floor_num))
+            # Public zone at top (living + kitchen)
+            row1_rooms = public + service
+            if row1_rooms:
+                row1_h = max(self._vary_size(r)[1] for r in row1_rooms)
+                row1 = self._place_row(row1_rooms, 0, 0, row1_h, pub_w, floor_num)
+                placed.extend(row1)
+                priv_y = row1_h
+            else:
+                priv_y = 0
 
-        # ── Circulation (staircase/elevator) — bottom strip, full width ──
+            priv_h = max(usable_h - priv_y, 4)
+            placed.extend(self._place_private_zone(
+                private, wet, priv_y, priv_h, priv_w, floor_num, x_offset=priv_x))
+
+        # ── Circulation (staircase/elevator) — bottom strip ──
         if circ:
             circ_y = usable_h
             cx = 0
             for rtype in circ:
-                w, h = self.SIZES.get(rtype, (3, 3))
+                w, h = self._vary_size(rtype)
                 placed.append({"room": rtype, "x": cx, "y": circ_y,
                                "w": w, "h": circ_h, "floor": floor_num, "structural": True})
                 cx += w
-            # Fill remaining circ row width
             if cx < grid_w:
                 placed.append({"room": "corridor", "x": cx, "y": circ_y,
                                "w": grid_w - cx, "h": circ_h, "floor": floor_num})
@@ -412,6 +472,7 @@ class BIMPipeline:
         self._sched     = ProjectScheduler()
         self._cost      = CostEstimationModel()
         self._struct    = MultiFloorStructuralGrid() if STRUCTURAL_OK else None
+        self._fp_model  = LearnedFloorPlanner() if LEARNED_FP_OK else None
         self._models_ready = False
 
     def prepare(self):
@@ -421,6 +482,15 @@ class BIMPipeline:
         if self._struct:
             self._struct.train(verbose=self.verbose)
         self._cost.train(verbose=self.verbose)
+
+        # Train floor plan model on HouseExpo + RPLAN
+        if self._fp_model:
+            result = self._fp_model.train(verbose=self.verbose)
+            if self._fp_model.trained:
+                self._planner._learned_model = self._fp_model
+                if self.verbose:
+                    print(f"  [FloorPlanModel] Attached to planner ✓")
+
         self._models_ready = True
         if self.verbose:
             print("── Models ready ────────────────────────────────────────\n")
@@ -560,7 +630,7 @@ class BIMPipeline:
         )
 
     def _fallback_structural(self, building: dict) -> dict:
-        """Column grid fallback — only within actual building footprint."""
+        """Column grid fallback — strictly within building footprint."""
         result = {}
         for key, layout in building.items():
             if not layout:
@@ -569,20 +639,25 @@ class BIMPipeline:
             # Compute actual building bounding box from placed rooms
             max_x = max(r['x'] + r['w'] for r in layout)
             max_y = max(r['y'] + r['h'] for r in layout)
-            # Place columns at ~4m spacing within bounds only
+            # Place columns at ~4m spacing strictly within bounds
             spacing = 4
-            cols = []
+            cols = set()
+            # Interior grid columns
             for x in range(0, max_x + 1, spacing):
                 for y in range(0, max_y + 1, spacing):
-                    cols.append([float(x), float(y)])
-            # Also add boundary columns at max extents if not already covered
+                    if x <= max_x and y <= max_y:
+                        cols.add((float(x), float(y)))
+            # Boundary columns at exact building edges
             for x in range(0, max_x + 1, spacing):
-                if [float(x), float(max_y)] not in cols:
-                    cols.append([float(x), float(max_y)])
+                cols.add((float(min(x, max_x)), float(max_y)))
             for y in range(0, max_y + 1, spacing):
-                if [float(max_x), float(y)] not in cols:
-                    cols.append([float(max_x), float(y)])
-            result[key] = {"columns": cols, "beams": [], "slabs": []}
+                cols.add((float(max_x), float(min(y, max_y))))
+            # Corner columns
+            cols.add((0.0, 0.0))
+            cols.add((float(max_x), 0.0))
+            cols.add((0.0, float(max_y)))
+            cols.add((float(max_x), float(max_y)))
+            result[key] = {"columns": [list(c) for c in sorted(cols)], "beams": [], "slabs": []}
         return result
 
 

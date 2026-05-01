@@ -6,6 +6,9 @@ services:
       dockerfile: Dockerfile.ai
     ports:
       - "8001:8001"
+    volumes:
+      - ./HouseExpo_png:/data/HouseExpo_png:ro
+      - ./RPLAN:/data/RPLAN:ro
     environment:
       - PORT=8001
     networks:

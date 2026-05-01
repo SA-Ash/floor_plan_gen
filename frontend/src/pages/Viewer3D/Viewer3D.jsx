@@ -147,7 +147,15 @@ export default function Viewer3D() {
                             h: r.h * 25,
                             border: r.room?.includes('bath') ? '#8b5cf6' : r.room?.includes('kitchen') ? '#f59e0b' : r.room?.includes('living') ? '#10b981' : '#3b82f6'
                         })),
-                        columns: structuralData?.[key]?.columns?.map(c => ({ x: c[0]*25, y: c[1]*25 })) || []
+                        columns: (() => {
+                            // Compute building bounding box from rooms
+                            const maxRx = Math.max(...rooms.map(r => r.x + r.w), 0);
+                            const maxRy = Math.max(...rooms.map(r => r.y + r.h), 0);
+                            // Filter columns to only those within building footprint
+                            return (structuralData?.[key]?.columns || [])
+                                .filter(c => c[0] <= maxRx && c[1] <= maxRy)
+                                .map(c => ({ x: c[0]*25, y: c[1]*25 }));
+                        })()
                     }));
                     setFloors(apiFloors);
                 }
